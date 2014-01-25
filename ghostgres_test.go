@@ -1,7 +1,7 @@
 // Copyright 2014, Surul Software Labs GmbH
 // All rights reserved.
 //
-package postgres
+package ghostgres
 
 import (
 	"database/sql"

@@ -1,10 +1,11 @@
 // Copyright 2014, Surul Software Labs GmbH
 // All rights reserved.
 //
-// This provides a utility to start and control a PostgreSQL database.
+// Package ghostgres is a utility to start and control a PostgreSQL database.
 // The expected usage is in tests where it allows for easy startup and
 // shutdown of a database.
-package postgres
+//
+package ghostgres
 
 import (
 	"errors"
@@ -26,7 +27,9 @@ var postgresqlConfTemplate = template.Must(template.New("postgresql.conf").Parse
 {{$opt.Key}} = {{$opt.Value}} {{if $opt.Comment}} # {{$opt.Comment}} {{end}}
 {{end}}`))
 
-// PostgreSQL configuration option
+// ConfigOpt represents a PostgreSQL configuration option
+// It is used both to specify command line arguments as well
+// as populate the postgresql.conf file.
 type ConfigOpt struct {
 	Key     string
 	Value   string
@@ -35,7 +38,31 @@ type ConfigOpt struct {
 
 type FailureHandler func(...interface{})
 
-// Configuration for a PostgreSQL cluster
+// TestLogFileName is the file name to which PostgresSQL will
+// log if TestConfigWithLogging is used. The path is relative to DataDir/pg_log
+const TestLogFileName = "postgresql-tests.log"
+
+// TestConfig provides some sane defaults for a cluster to be used in unit tests.
+var TestConfig = []ConfigOpt{
+	{"port", "5432", "Use the default port since we disable TCP listen"},
+	{"listen_addresses", "''", "Do not listen on TCP. Instead use a unix domain socket for communication"},
+	{"ssl", "false", "No ssl for unit tests"},
+	{"shared_buffers", "10MB", "Smaller shared buffers to reduce resource usage"},
+	{"fsync", "off", "Ignore system crashes, since tests will fail in that event anyway"},
+	{"full_page_writes", "off", "Useless without fsync"},
+}
+
+// LoggingConfig provides useful defaults for logging in tests.
+var LoggingConfig = []ConfigOpt{
+	{"logging_collector", "on", "Collecting query logs can be useful to debug tests"},
+	{"log_filename", TestLogFileName, "Well known file name to make log parsing easy in tests"},
+	{"log_statement", "all", "Log all statements"},
+}
+
+// TestConfigWithLogging combines TestConfig and LoggingConfig
+var TestConfigWithLogging = append(TestConfig, LoggingConfig...)
+
+// PostgresCluster describes a single PostgreSQL cluster
 type PostgresCluster struct {
 	// Key value pairs used to create a postgresql.conf file. They are
 	// written out as
@@ -81,44 +108,21 @@ func (p *PostgresCluster) checkError(err error) {
 	}
 }
 
-// Clones a previous postgres database by copying the entire directory
-// This currently only works on systems which have a cp command. This
-// will not work if the destination directory exists.
-func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
-	defer func() { p.checkError(err) }()
-
-	if p.Running() {
-		err = errors.New("cannot clone a running cluster")
-		return
-	}
-
-	if _, err = os.Stat(dest); err == nil {
-		err = errors.New("Cannot clone into an existing directory")
-		return
-	} else if !os.IsNotExist(err) {
-		return
-	}
-
-	var output []byte
-	if output, err = exec.Command("cp", "-r", p.DataDir, dest).CombinedOutput(); err != nil {
-		err = fmt.Errorf("%v: %s", err, string(output))
-		return
-	}
-	cloned := *p
-	cloned.DataDir = dest
-	c = &cloned
-	return
-}
-
-func (p *PostgresCluster) InitIfNeeded() (err error) {
-	if !p.Initialized() {
-		err = p.Init()
-	}
-	return
-}
-
-// This will run initdb to create the cluster in the specified
-// directory.
+// Init will run initdb to create the cluster in the specified
+// directory. Init will return an error if the directory contains
+// an existing cluster. Use InitIfNeeded() to skip initialization
+// of existing clusters.
+//
+// Please note that this can be time consuming and it
+// is recommended that a golden version of a database is first
+// initialized outside of the test system and then used as a
+// source for cloning using Clone(string). A newly initialized
+// cluster usually takes up about 33 MB of space. One potential
+// option is to have the golden version be initialized in a location
+// that will not be committed into a source repository. Use
+// InitIfNeeded instead of Init and always use Clone(string) and
+// only call Start() on the clone. This allows a single golden copy
+// to be shared among multiple tests with fast start times.
 func (p *PostgresCluster) Init() (err error) {
 	defer func() { p.checkError(err) }()
 
@@ -145,6 +149,13 @@ func (p *PostgresCluster) Init() (err error) {
 
 	// Now write out the postgresql.conf
 	return surultpl.WriteFile(p.configFile(), postgresqlConfTemplate, p, 0600)
+}
+
+func (p *PostgresCluster) InitIfNeeded() (err error) {
+	if !p.Initialized() {
+		err = p.Init()
+	}
+	return
 }
 
 func (p *PostgresCluster) configFile() string { return filepath.Join(p.DataDir, "postgresql.conf") }
@@ -222,6 +233,35 @@ func (p *PostgresCluster) Start() (err error) {
 		p.proc = nil
 		return
 	}
+	return
+}
+
+// Clone clones a previous postgres database by copying the entire directory
+// This currently only works on systems which have a cp command. This
+// will not work if the destination directory exists.
+func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
+	defer func() { p.checkError(err) }()
+
+	if p.Running() {
+		err = errors.New("cannot clone a running cluster")
+		return
+	}
+
+	if _, err = os.Stat(dest); err == nil {
+		err = errors.New("Cannot clone into an existing directory")
+		return
+	} else if !os.IsNotExist(err) {
+		return
+	}
+
+	var output []byte
+	if output, err = exec.Command("cp", "-r", p.DataDir, dest).CombinedOutput(); err != nil {
+		err = fmt.Errorf("%v: %s", err, string(output))
+		return
+	}
+	cloned := *p
+	cloned.DataDir = dest
+	c = &cloned
 	return
 }
 
