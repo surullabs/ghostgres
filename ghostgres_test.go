@@ -204,7 +204,7 @@ func Example() {
 	master.Stop()
 }
 
-func Example_cloned() {
+func Example_cloning() {
 	// Using a postgres cluster with test defaults that is cloned from a previously known
 	// location.
 
