@@ -39,6 +39,8 @@ type ConfigOpt struct {
 	Comment string
 }
 
+// FailureHandler defines a function to be called when errors occur. Setting one
+// makes using PostgresCluster easier in tests.
 type FailureHandler func(...interface{})
 
 // TestLogFileName is the file name to which PostgresSQL will
@@ -103,7 +105,7 @@ func makeArgs(opts []ConfigOpt) []string {
 	return args
 }
 
-var tempDir surulio.TempDirExecer = &surulio.SafeTempDirExecer{}
+var tempDir = &surulio.SafeTempDirExecer{}
 
 func (p *PostgresCluster) checkError(err error) {
 	if p.FailWith != nil && err != nil {
@@ -168,7 +170,7 @@ func (p *PostgresCluster) configFile() string { return filepath.Join(p.DataDir, 
 // and returns the parsed port or 5432 if there is a failure or no
 // port is specified. If there is a failure the FailWith will
 // be called.
-func (p *PostgresCluster) Port() int {
+func (p *PostgresCluster) Port() (portVal int) {
 	port := "5432"
 	for _, opt := range p.Config {
 		if opt.Key == "port" {
@@ -176,13 +178,13 @@ func (p *PostgresCluster) Port() int {
 			break
 		}
 	}
-	if portVal, err := strconv.Atoi(port); err != nil {
+	var err error
+	if portVal, err = strconv.Atoi(port); err != nil {
 		// The port is invalid, falling back to 5432
 		p.checkError(err)
 		return 5432
-	} else {
-		return portVal
 	}
+	return portVal
 }
 
 // SocketDir returns the location of the postgres unix socket directory
@@ -211,7 +213,7 @@ func (p *PostgresCluster) Initialized() bool {
 func (p *PostgresCluster) WaitTillRunning(timeout time.Duration) (err error) {
 	defer func() { p.checkError(err) }()
 	if p.proc == nil {
-		err = errors.New("The server has not been started")
+		err = errors.New("server has not been started")
 	} else {
 		err = surulio.WaitTillExists(p.SocketFile(), 10*time.Millisecond, timeout)
 	}
@@ -237,12 +239,12 @@ func (p *PostgresCluster) Running() bool {
 func (p *PostgresCluster) Start() (err error) {
 	defer func() { p.checkError(err) }()
 	if !p.Initialized() {
-		err = errors.New("The postgres cluster is not initialized. Please call Init()")
+		err = errors.New("postgres cluster not initialized")
 		return
 	}
 
 	if p.Running() {
-		err = errors.New("The postgres cluster is already running")
+		err = errors.New("postgres cluster already running")
 		return
 	}
 
@@ -271,7 +273,7 @@ func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
 	}
 
 	if _, err = os.Stat(dest); err == nil {
-		err = errors.New("Cannot clone into an existing directory")
+		err = errors.New("cannot clone into an existing directory")
 		return
 	} else if !os.IsNotExist(err) {
 		return
@@ -298,7 +300,7 @@ func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
 func (p *PostgresCluster) Wait() (err error) {
 	defer func() { p.checkError(err) }()
 	if !p.Running() {
-		err = errors.New("The postgres cluster is not running")
+		err = errors.New("postgres cluster not running")
 		return
 	}
 	defer func() { p.proc = nil }()
