@@ -1,10 +1,13 @@
 // Copyright 2014, Surul Software Labs GmbH
 // All rights reserved.
-//
-// Package ghostgres is a utility to start and control a PostgreSQL database.
-// The expected usage is in tests where it allows for easy startup and
-// shutdown of a database.
-//
+
+/*
+Package ghostgres is a utility to start and control a PostgreSQL database.
+The expected usage is in tests where it allows for easy startup and
+shutdown of a database.
+
+Please consult the examples for sample usage.
+*/
 package ghostgres
 
 import (
@@ -151,6 +154,7 @@ func (p *PostgresCluster) Init() (err error) {
 	return surultpl.WriteFile(p.configFile(), postgresqlConfTemplate, p, 0600)
 }
 
+// InitIfNeeded calls Init() if a call to Initialized returns false.
 func (p *PostgresCluster) InitIfNeeded() (err error) {
 	if !p.Initialized() {
 		err = p.Init()
@@ -189,6 +193,9 @@ func (p *PostgresCluster) SocketFile() string {
 	return filepath.Join(p.SocketDir(), fmt.Sprintf(".s.PGSQL.%d", p.Port()))
 }
 
+// Initialized checks if a cluster has been initialized in the data directory.
+// It uses the existence of the postgresql.conf file as a signal that the
+// cluster has been initialized.
 func (p *PostgresCluster) Initialized() bool {
 	if exists, err := surulio.Exists(p.configFile()); exists && err == nil {
 		return true
@@ -196,6 +203,11 @@ func (p *PostgresCluster) Initialized() bool {
 	return false
 }
 
+// WaitTillRunning waits for a duration of timeout for the postgres server to start.
+// It must be called after a call to Start() and before a call to Stop() or Wait()
+// It polls for the existence of the socket file every 10ms to detect if the server
+// is running and accessible and will return an error if it cannot detect the
+// server within timeout.
 func (p *PostgresCluster) WaitTillRunning(timeout time.Duration) (err error) {
 	defer func() { p.checkError(err) }()
 	if p.proc == nil {
@@ -206,11 +218,22 @@ func (p *PostgresCluster) WaitTillRunning(timeout time.Duration) (err error) {
 	return
 }
 
+// Running will return true if the server is running. Please note that this is still
+// not very accurate as it merely checks if the server has been started.
 func (p *PostgresCluster) Running() bool {
 	// TODO: Run the process in a separate goroutine and make this more robust.
 	return p.proc != nil
 }
 
+// Start starts the postgres database. It will add the following extra flags in addition
+// to the RunOpts provided.
+//
+//	-D p.DataDir  // Use the specified data directory
+//	-k p.DataDir  // Use the data directory as the socket directory for unix sockets.
+//	-c config_file=p.DataDir/postgresql.confg // Custom config file.
+//
+// It does not attempt to read the config file to determine the data directory or the
+// socket directory.
 func (p *PostgresCluster) Start() (err error) {
 	defer func() { p.checkError(err) }()
 	if !p.Initialized() {
@@ -265,6 +288,13 @@ func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
 	return
 }
 
+// Wait waits for a running postgres server to terminate. It is useful when you wish to freeze a test
+// and inspect the database. Once it is frozen it can be stopped using
+//
+//	pg_ctl -D p.DataDir stop
+//
+// It will return an error if the server exits with any return code other than 0. It is an error
+// to call this before calling Start.
 func (p *PostgresCluster) Wait() (err error) {
 	defer func() { p.checkError(err) }()
 	if !p.Running() {
@@ -276,6 +306,9 @@ func (p *PostgresCluster) Wait() (err error) {
 	return
 }
 
+// Stop stops the postgres cluster if it is running by sending it a SIGTERM signal.
+// This will request a slow shutdown and the postgres server will wait for all existing
+// connections to close. It is an error to call this if the server is not running.
 func (p *PostgresCluster) Stop() (err error) {
 	defer func() { p.checkError(err) }()
 	if !p.Running() {

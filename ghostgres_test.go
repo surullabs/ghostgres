@@ -9,7 +9,10 @@ import (
 	"fmt"
 	_ "github.com/lib/pq"
 	. "github.com/surullabs/goutil/testing"
+	"io/ioutil"
 	. "launchpad.net/gocheck"
+	"log"
+	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -161,4 +164,87 @@ func (s *PostgresSuite) TestFailures(c *C) {
 
 	cluster.proc.Process.Signal(syscall.SIGINT)
 	checkFailure(c, cluster, cluster.Wait)
+}
+
+func Example() {
+	// Using a postgres cluster with test defaults in a temporary directory
+
+	tempDir, err := ioutil.TempDir("", "ghostgres")
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	defer func() { os.RemoveAll(tempDir) }()
+
+	// A postgres cluster which will be created in tempDir and use binaries
+	// from /usr/lib/postgresql/9.3/bin. log.Fatal will be run if any errors
+	// occur on any  of the exported methods of ghostgres.
+	// This can also be an instance of testing.T.Fatal to automatically abort
+	// tests on error
+	master := &PostgresCluster{
+		Config:   TestConfig,
+		DataDir:  tempDir,
+		BinDir:   "/usr/lib/postgresql/9.3/bin",
+		FailWith: log.Fatal,
+	}
+
+	// Initialize the cluster
+	master.Init()
+	master.Start()
+	defer master.Stop()
+
+	// Now use the database
+	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", master.SocketDir(), master.Port()))
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	defer db.Close()
+
+	master.Stop()
+}
+
+func Example_cloned() {
+	// Using a postgres cluster with test defaults that is cloned from a previously known
+	// location.
+
+	// The temporary directory will be used for the clone
+	tempDir, err := ioutil.TempDir("", "ghostgres")
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	defer func() { os.RemoveAll(tempDir) }()
+
+	// A postgres cluster which will be loaded from testdata/templatedb and use binaries
+	// from /usr/lib/postgresql/9.3/bin. log.Fatal will be run if any errors
+	// occur on any  of the exported methods of ghostgres.
+	// This can also be an instance of testing.T.Fatal to automatically abort
+	// tests on error
+	master := &PostgresCluster{
+		Config:   TestConfig,
+		DataDir:  "testdata/templatedb",
+		BinDir:   "/usr/lib/postgresql/9.3/bin",
+		FailWith: log.Fatal,
+	}
+
+	// Initialize the cluster if needed. This allows you to create a template
+	// easily. You can then choose to store the template in version control
+	// but be warned that it takes up to 33 MB.
+	master.InitIfNeeded()
+
+	// Create a clone which we will use for tests.
+	clone, _ := master.Clone(tempDir)
+
+	defer clone.Stop()
+
+	// Now use the database
+	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", clone.SocketDir(), clone.Port()))
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	defer db.Close()
+
+	clone.Stop()
 }
