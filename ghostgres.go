@@ -4,9 +4,36 @@
 /*
 Package ghostgres is a utility to start and control a PostgreSQL database.
 The expected usage is in tests where it allows for easy startup and
-shutdown of a database.
+shutdown of a database. The easiest way is to have Ghostgres build a template
+from which it can clone a fresh database when you need one. In order to do this
+run
 
-Please consult the examples for sample usage.
+	// Fetch the package
+	go get -t github.com/surullabs/ghostgres
+
+	// Run tests and create a default postgres cluster that will be used
+	// as a template for future clusters.
+	go test github.com/surullabs/ghostgres --ghostgres_pg_bin_dir=<path_to_your_postgres_bin_dir>
+
+In your test code you can now use (with appropriate error checks)
+
+	tempDir, _ := ioutil.TempDir("", "test_cluster")
+	// Create a copy of the default postgres cluster in tempDir
+	cluster, err := ghostgres.FromDefault(tempDir)
+	if err != nil {
+		// fail
+	}
+	// Set a function which will be called on errors
+	cluster.FailWith = t.Fatal // Or some other failure function
+	// Start the postgres server
+	cluster.Start()
+	// Remember to stop it!
+	defer cluster.Stop()
+
+	// Connect to the running postgres server through a unix socket.
+	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", cluster.SocketDir(), cluster.Port()))
+
+Please consult the examples for other sample usage.
 */
 package ghostgres
 
@@ -89,7 +116,7 @@ type PostgresCluster struct {
 	Password string
 	// Convenience when writing tests. All exported functions will call this
 	// failure handler if it is not nil.
-	FailWith FailureHandler
+	FailWith FailureHandler `json:"-"`
 	// The running postgres process
 	proc *exec.Cmd
 }
@@ -273,7 +300,7 @@ func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
 	}
 
 	if _, err = os.Stat(dest); err == nil {
-		err = errors.New("cannot clone into an existing directory")
+		err = fmt.Errorf("cannot clone into an existing directory %s", dest)
 		return
 	} else if !os.IsNotExist(err) {
 		return

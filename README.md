@@ -1,7 +1,7 @@
 Ghostgres
 ======
 
-Ghostgres helps you manage PostgreSQL clusters in Go unit tests.
+Ghostgres helps you start and control fresh PostgreSQL clusters in 10s of ms.
 
 Running a unit test while talking to a database can be tricky and
 sometimes requires a fair amount of setup to ensure the right
@@ -12,9 +12,15 @@ Ghostgres helps solve this by providing utilities to create a
 standalone PostgreSQL cluster. It comes with the following
 features for ease of use
 
-   * Initialization of a fresh PostgreSQL cluster at a chosen location.
+   * Initialization of a fresh PostgreSQL cluster at a chosen location using initdb.
    * Cloning an existing installation for fast test startup times.
    * Controlling configuration of the cluster at initialization time.
+
+The easiest way to use Ghostgres is to allow it to create a default template
+for your version of postgres. This is done in the Ghostgres package directory
+and is never modified. All future clusters are created by copying this directory
+tree to a new location and starting a postgres server from there. This takes 10s of
+ms vs 2 to 3 seconds to run initdb.
 
 ## Documentation and Examples
 

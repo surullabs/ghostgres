@@ -5,7 +5,6 @@ package ghostgres
 
 import (
 	"database/sql"
-	"flag"
 	"fmt"
 	_ "github.com/lib/pq"
 	. "github.com/surullabs/goutil/testing"
@@ -18,8 +17,6 @@ import (
 	"testing"
 	"time"
 )
-
-var pgBinDir = flag.String("pg_bin_dir", "/usr/lib/postgresql/9.3/bin", "Directory containing PostgreSQL binaries")
 
 type PostgresSuite struct{}
 
