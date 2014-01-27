@@ -85,7 +85,15 @@ func (t ghostgresTemplate) exists() bool {
 func (t ghostgresTemplate) clone(cloneDir string) *PostgresCluster {
 	cluster := PostgresCluster{}
 	checkErr(nil, json.Unmarshal(checkErr(ioutil.ReadFile(t.config())).([]byte), &cluster))
-	return checkErr(cluster.Clone(cloneDir)).(*PostgresCluster)
+	var onStop func()
+	if cloneDir == "" {
+		tempDir := checkErr(ioutil.TempDir("", "ghostgres_clone")).(string)
+		cloneDir = filepath.Join(tempDir, "clone")
+		onStop = func() { os.RemoveAll(tempDir) }
+	}
+	cloned := checkErr(cluster.Clone(cloneDir)).(*PostgresCluster)
+	cloned.onStop = onStop
+	return cloned
 }
 func (t ghostgresTemplate) createFrom(c *PostgresCluster) (err error) {
 	check(!c.Running(), "cannot create a template from a running cluster")
@@ -119,12 +127,17 @@ func FromDefault(dest string) (p *PostgresCluster, err error) {
 //
 // If the defaults don't exist an error will be returned. Please call
 // Freeze(, name) first before calling FromTemplate.
+//
+// If dest is empty a temporary directory is created for the clone and will
+// be deleted when Stop() is called on the cluster.
 func FromTemplate(dir, name, dest string) (p *PostgresCluster, err error) {
 	defer func() { err = handlePanic(err, recover()) }()
 	return newTemplate(dir, name).clone(dest), nil
 }
 
-// Freeze will save a default configuration to
+// Freeze will save a template to
+//
+//	%dir%/%name%/%pg_version%/
 //
 // where
 //	%dir%		directory into which to freeze. This will
@@ -133,12 +146,7 @@ func FromTemplate(dir, name, dest string) (p *PostgresCluster, err error) {
 //	%name%		is the value of the parameter 'name'
 //	%pg_version%	is the result of calling PostgresVersion()
 //
-// It will attempt to create an initialized database at from the
-// initialized postgres cluster.
-//
-//	%dir%/%name%/%pg_version%/data
-//
-// If a defaults file exists it will return an error
+// If a frozen template exists it will return an error
 func (cluster *PostgresCluster) Freeze(dir, name string) (err error) {
 	defer func() { err = handlePanic(err, recover()) }()
 	return newTemplate(dir, name).createFrom(cluster)

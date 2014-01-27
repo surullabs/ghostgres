@@ -35,17 +35,24 @@ func TestCreateDefaults(t *testing.T) {
 			FailWith: t.Fatal,
 			Password: "ghostgres",
 		}
+		checkErr(nil, cluster.Init())
 		checkErr(nil, cluster.Freeze(DefaultTemplateDir, DefaultTemplate))
+
 		fmt.Println("Created default template for version", version, "at", defaultTpl.path())
 	}
 
 	// Now test that we can clone it.
-	tempDirCheck := checkErr(ioutil.TempDir("", "ghostgres_check")).(string)
-	defer func() { os.RemoveAll(tempDirCheck) }()
 	before := time.Now()
-	checkErr(FromTemplate(DefaultTemplateDir, DefaultTemplate, filepath.Join(tempDirCheck, "clone")))
+	cloned := checkErr(FromDefault("")).(*PostgresCluster)
 	atClone := time.Now()
 	fmt.Printf("Cloning a new cluster takes %0.4f seconds\n", atClone.Sub(before).Seconds())
+	checkErr(nil, cloned.Start())
+	defer cloned.Stop()
+	checkErr(nil, cloned.WaitTillRunning(1*time.Second))
+	checkErr(os.Stat(filepath.Dir(cloned.DataDir)))
+	checkErr(nil, cloned.Stop())
+	_, err := os.Stat(filepath.Dir(cloned.DataDir))
+	check(os.IsNotExist(err), "Directory not cleaned up")
 }
 
 func checkPanic(c *C, matchRe string, fn func()) {

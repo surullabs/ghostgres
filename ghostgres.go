@@ -17,9 +17,8 @@ run
 
 In your test code you can now use (with appropriate error checks)
 
-	tempDir, _ := ioutil.TempDir("", "test_cluster")
-	// Create a copy of the default postgres cluster in tempDir
-	cluster, err := ghostgres.FromDefault(tempDir)
+	// Create a cloned cluster from the default template in a temporary directory
+	cluster, err := ghostgres.FromDefault("")
 	if err != nil {
 		// fail
 	}
@@ -27,7 +26,7 @@ In your test code you can now use (with appropriate error checks)
 	cluster.FailWith = t.Fatal // Or some other failure function
 	// Start the postgres server
 	cluster.Start()
-	// Remember to stop it!
+	// Remember to stop it! This will delete the temporary directory.
 	defer cluster.Stop()
 
 	// Connect to the running postgres server through a unix socket.
@@ -119,6 +118,8 @@ type PostgresCluster struct {
 	FailWith FailureHandler `json:"-"`
 	// The running postgres process
 	proc *exec.Cmd
+	// If not nil this handler is run after the database is stopped
+	onStop func()
 }
 
 func makeArgs(opts []ConfigOpt) []string {
@@ -299,6 +300,10 @@ func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
 		return
 	}
 
+	if !p.Initialized() {
+		return nil, errors.New("cluster must be initialized before cloning")
+	}
+
 	if _, err = os.Stat(dest); err == nil {
 		err = fmt.Errorf("cannot clone into an existing directory %s", dest)
 		return
@@ -340,10 +345,17 @@ func (p *PostgresCluster) Wait() (err error) {
 // connections to close. It is an error to call this if the server is not running.
 func (p *PostgresCluster) Stop() (err error) {
 	defer func() { p.checkError(err) }()
+	defer func() {
+		if p.onStop != nil {
+			p.onStop()
+		}
+	}()
 	if !p.Running() {
 		return
 	}
 	p.proc.Process.Signal(syscall.SIGTERM)
-	err = p.Wait()
+	if err = p.Wait(); err != nil && err.Error() == "signal: terminated" {
+		err = nil
+	}
 	return
 }

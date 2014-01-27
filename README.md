@@ -1,7 +1,7 @@
 Ghostgres
 ======
 
-Ghostgres helps you start and control fresh PostgreSQL clusters in 10s of ms.
+Ghostgres helps you start and control fresh PostgreSQL clusters in < 100ms.
 
 Running a unit test while talking to a database can be tricky and
 sometimes requires a fair amount of setup to ensure the right
