@@ -4,6 +4,7 @@
 package ghostgres
 
 import (
+	"database/sql"
 	"fmt"
 	"io/ioutil"
 	. "launchpad.net/gocheck"
@@ -46,6 +47,10 @@ func TestCreateDefaults(t *testing.T) {
 	cloned := checkErr(FromDefault("")).(*PostgresCluster)
 	atClone := time.Now()
 	fmt.Printf("Cloning a new cluster takes %0.4f seconds\n", atClone.Sub(before).Seconds())
+
+	os.RemoveAll("testdata/drone.io")
+	second := checkErr(cloned.Clone("testdata/drone.io")).(*PostgresCluster)
+
 	checkErr(nil, cloned.Start())
 	defer cloned.Stop()
 	checkErr(nil, cloned.WaitTillRunning(1*time.Second))
@@ -53,6 +58,23 @@ func TestCreateDefaults(t *testing.T) {
 	checkErr(nil, cloned.Stop())
 	_, err := os.Stat(filepath.Dir(cloned.DataDir))
 	check(os.IsNotExist(err), "Directory not cleaned up")
+
+	checkErr(nil, second.Start())
+	defer second.Stop()
+
+	t.Log("Cluster started. Waiting for it to run")
+	checkErr(nil, second.WaitTillRunning(1*time.Second))
+
+	str := fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", second.SocketDir(), second.Port())
+	t.Log("Opening db connection", str)
+	db := checkErr(sql.Open("postgres", str)).(*sql.DB)
+	defer db.Close()
+
+	t.Log("Running query")
+	var count int
+	checkErr(nil, db.QueryRow("SELECT count(*) FROM pg_database WHERE datistemplate = false;").Scan(&count))
+	t.Log("Finished query")
+	check(count == 1, "mismatched count")
 }
 
 func checkPanic(c *C, matchRe string, fn func()) {

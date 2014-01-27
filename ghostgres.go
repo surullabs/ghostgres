@@ -78,6 +78,7 @@ var TestConfig = []ConfigOpt{
 	{"ssl", "false", "No ssl for unit tests"},
 	{"shared_buffers", "10MB", "Smaller shared buffers to reduce resource usage"},
 	{"fsync", "off", "Ignore system crashes, since tests will fail in that event anyway"},
+	{"autovacuum", "off", "Don't run autovacuum for tests"},
 	{"full_page_writes", "off", "Useless without fsync"},
 }
 
@@ -86,6 +87,7 @@ var LoggingConfig = []ConfigOpt{
 	{"logging_collector", "on", "Collecting query logs can be useful to debug tests"},
 	{"log_filename", TestLogFileName, "Well known file name to make log parsing easy in tests"},
 	{"log_statement", "all", "Log all statements"},
+	{"log_directory", "pg_log", "Logging directory"},
 }
 
 // TestConfigWithLogging combines TestConfig and LoggingConfig
@@ -213,8 +215,9 @@ func (p *PostgresCluster) Port() (portVal int) {
 	return portVal
 }
 
-// SocketDir returns the location of the postgres unix socket directory
-func (p *PostgresCluster) SocketDir() string { return p.DataDir }
+// SocketDir returns the location of the postgres unix socket directory.
+// Note: This will panic if it is unable to find the absolute path to the socket directory.
+func (p *PostgresCluster) SocketDir() string { return checkErr(filepath.Abs(p.DataDir)).(string) }
 
 // SocketFile returns the location of the postgres socket file
 func (p *PostgresCluster) SocketFile() string {
@@ -265,9 +268,10 @@ func (p *PostgresCluster) Start() (err error) {
 
 	args := make([]ConfigOpt, len(p.RunOpts))
 	copy(args, p.RunOpts)
-	args = append(args, ConfigOpt{"-D", p.DataDir, ""})
-	args = append(args, ConfigOpt{"-k", p.DataDir, ""})
+	args = append(args, ConfigOpt{"-D", checkErr(filepath.Abs(p.DataDir)).(string), ""})
+	args = append(args, ConfigOpt{"-k", p.SocketDir(), ""})
 	args = append(args, ConfigOpt{"-c", fmt.Sprintf("config_file=%s", p.configFile()), ""})
+	fmt.Println(makeArgs(args))
 	proc := exec.Command(filepath.Join(p.BinDir, "postgres"), makeArgs(args)...)
 	checkErr(nil, proc.Start())
 	p.proc = proc
