@@ -46,7 +46,7 @@ In your test code you can now use (with appropriate error checks)
 	defer cluster.Stop()
 
 	// Connect to the running postgres server through a unix socket.
-	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", cluster.SocketDir(), cluster.Port()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", cluster.TestConnectString()))
 
 ## Documentation and Examples
 

@@ -30,7 +30,7 @@ In your test code you can now use (with appropriate error checks)
 	defer cluster.Stop()
 
 	// Connect to the running postgres server through a unix socket.
-	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", cluster.SocketDir(), cluster.Port()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", cluster.TestConnectString()))
 
 Please consult the examples for other sample usage.
 */
@@ -42,6 +42,7 @@ import (
 	surultpl "github.com/surullabs/goutil/template"
 	"io/ioutil"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -88,6 +89,14 @@ var LoggingConfig = []ConfigOpt{
 	{"log_filename", TestLogFileName, "Well known file name to make log parsing easy in tests"},
 	{"log_statement", "all", "Log all statements"},
 	{"log_directory", "pg_log", "Logging directory"},
+}
+
+// TestConnectString returns a connect string to use when using
+// TestConfig. It assumes the super user is named as the current
+// user and will panic if unable to detect the user name.
+func (p *PostgresCluster) TestConnectString() string {
+	osUser := checkErr(user.Current()).(*user.User).Username
+	return fmt.Sprintf("sslmode=disable host=%s port=%d user=%s", p.SocketDir(), p.Port(), osUser)
 }
 
 // TestConfigWithLogging combines TestConfig and LoggingConfig
@@ -271,7 +280,6 @@ func (p *PostgresCluster) Start() (err error) {
 	args = append(args, ConfigOpt{"-D", checkErr(filepath.Abs(p.DataDir)).(string), ""})
 	args = append(args, ConfigOpt{"-k", p.SocketDir(), ""})
 	args = append(args, ConfigOpt{"-c", fmt.Sprintf("config_file=%s", p.configFile()), ""})
-	fmt.Println(makeArgs(args))
 	proc := exec.Command(filepath.Join(p.BinDir, "postgres"), makeArgs(args)...)
 	checkErr(nil, proc.Start())
 	p.proc = proc

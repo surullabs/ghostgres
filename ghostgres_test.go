@@ -39,7 +39,7 @@ func CheckCluster(cluster *PostgresCluster, c *C) {
 	c.Assert(cluster.WaitTillRunning(1*time.Second), IsNil)
 
 	c.Log("Opening db connection")
-	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", cluster.SocketDir(), cluster.Port()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", cluster.TestConnectString()))
 	c.Assert(err, IsNil)
 
 	defer db.Close()
@@ -191,7 +191,7 @@ func Example() {
 	defer master.Stop()
 
 	// Now use the database
-	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", master.SocketDir(), master.Port()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", master.TestConnectString()))
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -236,7 +236,7 @@ func Example_cloning() {
 	defer clone.Stop()
 
 	// Now use the database
-	db, err := sql.Open("postgres", fmt.Sprintf("sslmode=disable dbname=postgres host=%s port=%d", clone.SocketDir(), clone.Port()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", clone.TestConnectString()))
 	if err != nil {
 		log.Fatal(err)
 		return
