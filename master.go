@@ -66,6 +66,13 @@ func checkErr(i interface{}, err error) interface{} {
 	return i
 }
 
+func checkCommand(output []byte, err error) string {
+	if err != nil {
+		panic(ghostgresPanic(fmt.Sprintf("%v: %s", err, string(output))))
+	}
+	return string(output)
+}
+
 func handlePanic(err error, e interface{}) error {
 	if e == nil {
 		return err
@@ -126,7 +133,7 @@ func FromDefault(dest string) (p *PostgresCluster, err error) {
 // where dir and name have the same behaviour as in Freeze(dir,name).
 //
 // If the defaults don't exist an error will be returned. Please call
-// Freeze(, name) first before calling FromTemplate.
+// Freeze(dir, name) first before calling FromTemplate.
 //
 // If dest is empty a temporary directory is created for the clone and will
 // be deleted when Stop() is called on the cluster.
@@ -143,7 +150,8 @@ func FromTemplate(dir, name, dest string) (p *PostgresCluster, err error) {
 //	%dir%		directory into which to freeze. This will
 //			create a copy of the cluster into %dir%/data
 //			If %dir% is empty <path_to_ghostgres>/testdata/template is used.
-//	%name%		is the value of the parameter 'name'
+//	%name%		is the value of the parameter 'name'. If empty the value of
+//			the ghostgres_template flag is used.
 //	%pg_version%	is the result of calling PostgresVersion()
 //
 // If a frozen template exists it will return an error
