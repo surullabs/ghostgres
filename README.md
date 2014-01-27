@@ -1,6 +1,8 @@
 Ghostgres
 ======
 
+[![Build Status](https://drone.io/github.com/surullabs/ghostgres/status.png)](https://drone.io/github.com/surullabs/ghostgres/latest) [![GoDoc](https://godoc.org/github.com/surullabs/ghostgres?status.png)](https://godoc.org/github.com/surullabs/ghostgres)
+
 Ghostgres helps you start and control fresh PostgreSQL clusters in < 100ms.
 
 Running a unit test while talking to a database can be tricky and
@@ -63,4 +65,3 @@ into any problems. In additon, we're always happy to accept pull requests!
 If you do find this useful please share it with others who might also find
 it useful. The more users we have the better the software becomes.
 
-[![GoDoc](https://godoc.org/github.com/surullabs/ghostgres?status.png)](https://godoc.org/github.com/surullabs/ghostgres)
