@@ -23,7 +23,7 @@ type PostgresSuite struct{}
 var _ = Suite(&PostgresSuite{})
 
 // Hook up gocheck into the "go test" runner.
-func Test(t *testing.T) {
+func TestGocheck(t *testing.T) {
 	TestingT(t)
 }
 
@@ -87,6 +87,16 @@ func (s *PostgresSuite) TestBadPort(c *C) {
 
 func (s *PostgresSuite) TestInit(c *C) {
 	CheckCluster(initdb(c), c)
+}
+
+// Note: This test depends a bit on timing and so could be flaky.
+func (s *PostgresSuite) TestStopTerminated(c *C) {
+	cluster := initdb(c)
+	// Start and Stop immediately. If postgres is killed before it is
+	// properly started it will return a signal: terminated error.
+	c.Assert(cluster.Start(), IsNil)
+	fmt.Println("stopping")
+	c.Assert(cluster.Stop(), IsNil)
 }
 
 func (s *PostgresSuite) TestClone(c *C) {

@@ -6,6 +6,7 @@ package ghostgres
 import (
 	"database/sql"
 	"fmt"
+	"github.com/surullabs/fault"
 	"io/ioutil"
 	. "launchpad.net/gocheck"
 	"os"
@@ -16,8 +17,9 @@ import (
 
 func TestCreateDefaults(t *testing.T) {
 	defer func() {
-		if err := handlePanic(nil, recover()); err != nil {
-			fmt.Println(err)
+		var err error
+		if fault.Recover(&err, recover()); err != nil {
+			t.Fatal(err)
 		}
 	}()
 	defaultTpl := newTemplate(DefaultTemplateDir, DefaultTemplate)
@@ -27,7 +29,7 @@ func TestCreateDefaults(t *testing.T) {
 	} else {
 
 		fmt.Println("Creating default template for version", version, "at", defaultTpl.path())
-		tempDir := checkErr(ioutil.TempDir("", "ghostgres_default")).(string)
+		tempDir := fault.CheckReturn(ioutil.TempDir("", "ghostgres_default")).(string)
 		defer func() { os.RemoveAll(tempDir) }()
 		cluster := &PostgresCluster{
 			Config:   TestConfigWithLogging,
@@ -36,38 +38,38 @@ func TestCreateDefaults(t *testing.T) {
 			FailWith: t.Fatal,
 			Password: "ghostgres",
 		}
-		checkErr(nil, cluster.Init())
-		checkErr(nil, cluster.Freeze(DefaultTemplateDir, DefaultTemplate))
+		fault.CheckError(cluster.Init())
+		fault.CheckError(cluster.Freeze(DefaultTemplateDir, DefaultTemplate))
 
 		fmt.Println("Created default template for version", version, "at", defaultTpl.path())
 	}
 
 	// Now test that we can clone it.
 	before := time.Now()
-	cloned := checkErr(FromDefault("")).(*PostgresCluster)
+	cloned := fault.CheckReturn(FromDefault("")).(*PostgresCluster)
 	atClone := time.Now()
 	fmt.Printf("Cloning a new cluster takes %0.4f seconds\n", atClone.Sub(before).Seconds())
 
-	checkErr(nil, cloned.Start())
+	fault.CheckError(cloned.Start())
 	defer cloned.Stop()
-	checkErr(nil, cloned.WaitTillRunning(1*time.Second))
-	checkErr(os.Stat(filepath.Dir(cloned.DataDir)))
+	fault.CheckError(cloned.WaitTillRunning(1 * time.Second))
+	fault.CheckReturn(os.Stat(filepath.Dir(cloned.DataDir)))
 
 	str := fmt.Sprintf("%s dbname=postgres", cloned.TestConnectString())
 	t.Log("Opening db connection", str)
-	db := checkErr(sql.Open("postgres", str)).(*sql.DB)
+	db := fault.CheckReturn(sql.Open("postgres", str)).(*sql.DB)
 	defer db.Close()
 
 	t.Log("Running query")
 	var count int
-	checkErr(nil, db.QueryRow("SELECT count(*) FROM pg_database WHERE datistemplate = false;").Scan(&count))
+	fault.CheckError(db.QueryRow("SELECT count(*) FROM pg_database WHERE datistemplate = false;").Scan(&count))
 	t.Log("Finished query")
-	check(count == 1, "mismatched count")
+	fault.Check(count == 1, "mismatched count")
 	db.Close()
 
-	checkErr(nil, cloned.Stop())
+	fault.CheckError(cloned.Stop())
 	_, err := os.Stat(filepath.Dir(cloned.DataDir))
-	check(os.IsNotExist(err), "Directory not cleaned up")
+	fault.Check(os.IsNotExist(err), "Directory not cleaned up")
 
 }
 
@@ -75,8 +77,8 @@ func checkPanic(c *C, matchRe string, fn func()) {
 	defer func() {
 		if e := recover(); e == nil {
 			c.Fatal("No panic occured")
-		} else if _, isErr := e.(ghostgresPanic); isErr {
-			c.Assert(fmt.Errorf("%v", e), ErrorMatches, matchRe)
+		} else if faults, isErr := e.(fault.Fault); isErr {
+			c.Assert(faults.Fault(), ErrorMatches, matchRe)
 		} else {
 			c.Fatal(e)
 		}
@@ -104,7 +106,7 @@ func (s *PostgresSuite) TestTemplating(c *C) {
 	c.Assert(
 		filepath.Dir(newTemplate(DefaultTemplateDir, DefaultTemplate).path()),
 		Equals,
-		checkErr(filepath.Abs(filepath.Join(templateDir, *defaultName))).(string))
+		fault.CheckReturn(filepath.Abs(filepath.Join(templateDir, *defaultName))).(string))
 	cluster := initdb(c)
 	freezeDir := c.MkDir()
 	c.Assert(cluster.Freeze(freezeDir, "mytpl"), IsNil)
