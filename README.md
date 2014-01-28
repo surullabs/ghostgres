@@ -1,7 +1,7 @@
 Ghostgres
 ======
 
-[![Build Status](https://drone.io/github.com/surullabs/ghostgres/status.png)](https://drone.io/github.com/surullabs/ghostgres/latest) [![GoDoc](https://godoc.org/github.com/surullabs/ghostgres?status.png)](https://godoc.org/github.com/surullabs/ghostgres)
+[![GoDoc](https://godoc.org/github.com/surullabs/ghostgres?status.png)](https://godoc.org/github.com/surullabs/ghostgres) [![Build Status](https://drone.io/github.com/surullabs/ghostgres/status.png)](https://drone.io/github.com/surullabs/ghostgres/latest) [![Coverage Status](https://coveralls.io/repos/surullabs/ghostgres/badge.png?branch=master)](https://coveralls.io/r/surullabs/ghostgres?branch=master)
 
 Ghostgres helps you start and control fresh PostgreSQL clusters in < 100ms.
 
