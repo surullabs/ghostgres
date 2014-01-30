@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/surullabs/fault"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -25,12 +24,12 @@ func postgresBinary() string { return filepath.Join(*pgBinDir, "postgres") }
 
 func parseVersion(output string) (version string) {
 	version = regexp.MustCompile("[0-9]+\\.[0-9]+\\.[0-9]+").FindString(output)
-	fault.Check(version != "", fmt.Sprintf("failed to parse postgres version from %s", output))
+	check.True(version != "", fmt.Sprintf("failed to parse postgres version from %s", output))
 	return
 }
 
 func postgresVersion() (version string) {
-	return parseVersion(string(fault.CheckReturn(exec.Command(postgresBinary(), "--version").Output()).([]byte)))
+	return parseVersion(string(check.Return(exec.Command(postgresBinary(), "--version").Output()).([]byte)))
 }
 
 type ghostgresTemplate string
@@ -40,7 +39,7 @@ var gopathFn = func() string { return os.Getenv("GOPATH") }
 func newTemplate(root, name string) ghostgresTemplate {
 	if root == DefaultTemplateDir {
 		gopath := gopathFn()
-		fault.Check(gopath != "", "GOPATH is not set. Unable to locate templates")
+		check.True(gopath != "", "GOPATH is not set. Unable to locate templates")
 		// Use reflection to determine the package path so we're safe from package
 		// relocations.
 		pkgPath := filepath.Join(gopath, filepath.Join("src", reflect.TypeOf(PostgresCluster{}).PkgPath()))
@@ -61,22 +60,22 @@ func (t ghostgresTemplate) exists() bool {
 }
 func (t ghostgresTemplate) clone(cloneDir string) *PostgresCluster {
 	cluster := PostgresCluster{}
-	fault.CheckError(json.Unmarshal(fault.CheckReturn(ioutil.ReadFile(t.config())).([]byte), &cluster))
+	check.Error(json.Unmarshal(check.Return(ioutil.ReadFile(t.config())).([]byte), &cluster))
 	var onStop func()
 	if cloneDir == "" {
-		tempDir := fault.CheckReturn(ioutil.TempDir("", "ghostgres_clone")).(string)
+		tempDir := check.Return(ioutil.TempDir("", "ghostgres_clone")).(string)
 		cloneDir = filepath.Join(tempDir, "clone")
 		onStop = func() { os.RemoveAll(tempDir) }
 	}
-	cloned := fault.CheckReturn(cluster.Clone(cloneDir)).(*PostgresCluster)
+	cloned := check.Return(cluster.Clone(cloneDir)).(*PostgresCluster)
 	cloned.onStop = onStop
 	return cloned
 }
 func (t ghostgresTemplate) createFrom(c *PostgresCluster) (err error) {
-	fault.Check(!c.Running(), "cannot create a template from a running cluster")
-	fault.CheckError(os.MkdirAll(t.path(), 0700))
-	clone := fault.CheckReturn(c.Clone(t.data())).(*PostgresCluster)
-	marshalled := fault.CheckReturn(json.MarshalIndent(clone, "", "  ")).([]byte)
+	check.True(!c.Running(), "cannot create a template from a running cluster")
+	check.Error(os.MkdirAll(t.path(), 0700))
+	clone := check.Return(c.Clone(t.data())).(*PostgresCluster)
+	marshalled := check.Return(json.MarshalIndent(clone, "", "  ")).([]byte)
 	return ioutil.WriteFile(t.config(), marshalled, 0600)
 }
 
@@ -108,7 +107,7 @@ func FromDefault(dest string) (p *PostgresCluster, err error) {
 // If dest is empty a temporary directory is created for the clone and will
 // be deleted when Stop() is called on the cluster.
 func FromTemplate(dir, name, dest string) (p *PostgresCluster, err error) {
-	defer func() { fault.Recover(&err, recover()) }()
+	defer check.Recover(&err)
 	return newTemplate(dir, name).clone(dest), nil
 }
 
@@ -126,13 +125,13 @@ func FromTemplate(dir, name, dest string) (p *PostgresCluster, err error) {
 //
 // If a frozen template exists it will return an error
 func (cluster *PostgresCluster) Freeze(dir, name string) (err error) {
-	defer func() { fault.Recover(&err, recover()) }()
+	defer check.Recover(&err)
 	return newTemplate(dir, name).createFrom(cluster)
 }
 
 // Delete will delete a saved template configuration. dir and name
 // have the same behaviour as in Freeze.
 func Delete(dir, name string) (err error) {
-	defer func() { fault.Recover(&err, recover()) }()
+	defer check.Recover(&err)
 	return os.RemoveAll(newTemplate(dir, name).path())
 }

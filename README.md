@@ -40,15 +40,15 @@ In your test code you can now use (with appropriate error checks)
 	if err != nil {
 		// fail
 	}
-	// Set a function which will be called on errors
-	cluster.FailWith = t.Fatal // Or some other failure function
 	// Start the postgres server
-	cluster.Start()
+	err = cluster.Start() // Handle error
 	// Remember to stop it! This will delete the temporary directory.
 	defer cluster.Stop()
 
 	// Connect to the running postgres server through a unix socket.
-	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", cluster.TestConnectString()))
+	var connStr string
+	connStr, err = cluster.TestConnectString() // Handle error
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", connStr))
 
 ## Documentation and Examples
 

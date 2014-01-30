@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	_ "github.com/lib/pq"
+	"github.com/surullabs/fault"
 	. "github.com/surullabs/goutil/testing"
 	"io/ioutil"
 	. "launchpad.net/gocheck"
@@ -17,6 +18,8 @@ import (
 	"testing"
 	"time"
 )
+
+var testcheck = fault.Checker{}
 
 type PostgresSuite struct{}
 
@@ -36,10 +39,10 @@ func CheckCluster(cluster *PostgresCluster, c *C) {
 	defer cluster.Stop()
 
 	c.Log("Cluster started. Waiting for it to run")
-	c.Assert(cluster.WaitTillRunning(1*time.Second), IsNil)
+	c.Assert(cluster.WaitTillServing(1*time.Second), IsNil)
 
 	c.Log("Opening db connection")
-	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", cluster.TestConnectString()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", testcheck.Return(cluster.TestConnectString()).(string)))
 	c.Assert(err, IsNil)
 
 	defer db.Close()
@@ -66,7 +69,6 @@ func testCluster(c *C) *PostgresCluster {
 		DataDir:  c.MkDir(),
 		BinDir:   *pgBinDir,
 		Password: "This is random",
-		FailWith: c.Fatal,
 	}
 }
 
@@ -79,9 +81,7 @@ func initdb(c *C) *PostgresCluster {
 func (s *PostgresSuite) TestBadPort(c *C) {
 	cluster := testCluster(c)
 	cluster.Config = []ConfigOpt{{"port", "this is a bad port", ""}}
-	var err error
-	cluster.FailWith = func(args ...interface{}) { err = args[0].(error) }
-	c.Assert(cluster.Port(), Equals, 5432)
+	_, err := cluster.Port()
 	c.Assert(err, ErrorMatches, ".*this is a bad port.*")
 }
 
@@ -95,7 +95,6 @@ func (s *PostgresSuite) TestStopTerminated(c *C) {
 	// Start and Stop immediately. If postgres is killed before it is
 	// properly started it will return a signal: terminated error.
 	c.Assert(cluster.Start(), IsNil)
-	fmt.Println("stopping")
 	c.Assert(cluster.Stop(), IsNil)
 }
 
@@ -114,28 +113,14 @@ func (s *PostgresSuite) TestInitIfNeeded(c *C) {
 	}
 }
 
-func checkFailure(c *C, cluster *PostgresCluster, fn func() error) {
-	var failed error
-	cluster.FailWith = func(args ...interface{}) {
-		c.Assert(len(args), Equals, 1)
-		c.Assert(args[0], NotNil)
-		failed = args[0].(error)
-	}
+func checkFailure(c *C, cluster *PostgresCluster, fn func() error, matches string) {
 	expected := fn()
-	c.Assert(expected, NotNil)
-	c.Assert(failed, Equals, expected)
+	c.Assert(expected, ErrorMatches, matches)
 
 }
 
 func (s *PostgresSuite) TestFailures(c *C) {
 	cluster := testCluster(c)
-	checkFailure(c, cluster, cluster.Start)
-
-	cluster = initdb(c)
-	defer cluster.Stop()
-
-	checkFailure(c, cluster, cluster.Init)
-
 	cloner := func(dir string) func() error {
 		return func() error {
 			_, err := cluster.Clone(dir)
@@ -143,34 +128,41 @@ func (s *PostgresSuite) TestFailures(c *C) {
 		}
 	}
 
-	checkFailure(c, cluster, cloner(c.MkDir()))
-	checkFailure(c, cluster, cloner(cluster.DataDir))
-	checkFailure(c, cluster, cluster.Wait)
-	checkFailure(c, cluster, func() error { return cluster.WaitTillRunning(10) })
+	checkFailure(c, cluster, cluster.Start, "postgres cluster not initialized")
+	checkFailure(c, cluster, cloner(filepath.Join(c.MkDir(), "clone")), ".*must be initialized.*")
+
+	cluster = initdb(c)
+	defer cluster.Stop()
+
+	checkFailure(c, cluster, cluster.Init, "postgres cluster already initialized")
+
+	checkFailure(c, cluster, cloner(c.MkDir()), "cannot clone into an existing directory")
+	checkFailure(c, cluster, cluster.Wait, "postgres cluster not running")
+	checkFailure(c, cluster, func() error { return cluster.WaitTillServing(10) }, "server has not been started")
 
 	origOpts := cluster.RunOpts
 	cluster.RunOpts = []ConfigOpt{{Key: "--fake_flag"}}
 	c.Assert(cluster.Start(), IsNil)
-	checkFailure(c, cluster, cluster.Wait)
+	checkFailure(c, cluster, cluster.Wait, "exit status 1")
 	cluster.RunOpts = origOpts
 
 	origBin := cluster.BinDir
 	cluster.BinDir = c.MkDir()
-	checkFailure(c, cluster, cluster.Start)
+	checkFailure(c, cluster, cluster.Start, ".*no such file or directory.*")
 	cluster.BinDir = origBin
 
 	c.Assert(cluster.Start(), IsNil)
 
-	checkFailure(c, cluster, cluster.Start)
-	checkFailure(c, cluster, cloner(filepath.Join(c.MkDir(), "cloned")))
+	checkFailure(c, cluster, cluster.Start, ".*already running.*")
+	checkFailure(c, cluster, cloner(filepath.Join(c.MkDir(), "cloned")), "cannot clone a running cluster")
 
 	cluster.proc.Process.Signal(syscall.SIGINT)
-	checkFailure(c, cluster, cluster.Stop)
+	checkFailure(c, cluster, cluster.Stop, "signal: interrupt")
 
 	c.Assert(cluster.Start(), IsNil)
 
 	cluster.proc.Process.Signal(syscall.SIGINT)
-	checkFailure(c, cluster, cluster.Wait)
+	checkFailure(c, cluster, cluster.Wait, "signal: interrupt")
 }
 
 func Example() {
@@ -189,10 +181,9 @@ func Example() {
 	// This can also be an instance of testing.T.Fatal to automatically abort
 	// tests on error
 	master := &PostgresCluster{
-		Config:   TestConfig,
-		DataDir:  tempDir,
-		BinDir:   "/usr/lib/postgresql/9.3/bin",
-		FailWith: log.Fatal,
+		Config:  TestConfig,
+		DataDir: tempDir,
+		BinDir:  "/usr/lib/postgresql/9.3/bin",
 	}
 
 	// Initialize the cluster
@@ -201,7 +192,7 @@ func Example() {
 	defer master.Stop()
 
 	// Now use the database
-	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", master.TestConnectString()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", testcheck.Return(master.TestConnectString()).(string)))
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -229,10 +220,9 @@ func Example_cloning() {
 	// This can also be an instance of testing.T.Fatal to automatically abort
 	// tests on error
 	master := &PostgresCluster{
-		Config:   TestConfig,
-		DataDir:  "testdata/templatedb",
-		BinDir:   "/usr/lib/postgresql/9.3/bin",
-		FailWith: log.Fatal,
+		Config:  TestConfig,
+		DataDir: "testdata/templatedb",
+		BinDir:  "/usr/lib/postgresql/9.3/bin",
 	}
 
 	// Initialize the cluster if needed. This allows you to create a template
@@ -246,7 +236,7 @@ func Example_cloning() {
 	defer clone.Stop()
 
 	// Now use the database
-	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", clone.TestConnectString()))
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", testcheck.Return(clone.TestConnectString())))
 	if err != nil {
 		log.Fatal(err)
 		return

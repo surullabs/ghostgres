@@ -22,15 +22,15 @@ In your test code you can now use (with appropriate error checks)
 	if err != nil {
 		// fail
 	}
-	// Set a function which will be called on errors
-	cluster.FailWith = t.Fatal // Or some other failure function
 	// Start the postgres server
-	cluster.Start()
+	err = cluster.Start() // Handle error
 	// Remember to stop it! This will delete the temporary directory.
 	defer cluster.Stop()
 
 	// Connect to the running postgres server through a unix socket.
-	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", cluster.TestConnectString()))
+	var connStr string
+	connStr, err = cluster.TestConnectString() // Handle error
+	db, err := sql.Open("postgres", fmt.Sprintf("%s dbname=postgres", connStr))
 
 Please consult the examples for other sample usage.
 */
@@ -50,6 +50,8 @@ import (
 	"text/template"
 	"time"
 )
+
+var check = fault.NewChecker()
 
 var postgresqlConfTemplate = template.Must(template.New("postgresql.conf").Parse(`# Auto Generated PostgreSQL Configuration
 {{range $opt := $.Config}}
@@ -93,11 +95,12 @@ var LoggingConfig = []ConfigOpt{
 }
 
 // TestConnectString returns a connect string to use when using
-// TestConfig. It assumes the super user is named as the current
-// user and will panic if unable to detect the user name.
-func (p *PostgresCluster) TestConnectString() string {
-	osUser := fault.CheckReturn(user.Current()).(*user.User).Username
-	return fmt.Sprintf("sslmode=disable host=%s port=%d user=%s", p.SocketDir(), p.Port(), osUser)
+// TestConfig or an error if unable to build the string.
+func (p *PostgresCluster) TestConnectString() (str string, err error) {
+	defer check.Recover(&err)
+	osUser := check.Return(user.Current()).(*user.User).Username
+	return fmt.Sprintf("sslmode=disable host=%s port=%d user=%s",
+		check.Return(p.SocketDir()), check.Return(p.Port()).(int), osUser), nil
 }
 
 // TestConfigWithLogging combines TestConfig and LoggingConfig
@@ -123,9 +126,6 @@ type PostgresCluster struct {
 	BinDir string
 	// The password for the super user
 	Password string
-	// Convenience when writing tests. All exported functions will call this
-	// failure handler if it is not nil.
-	FailWith FailureHandler `json:"-"`
 	// The running postgres process
 	proc *exec.Cmd
 	// If not nil this handler is run after the database is stopped
@@ -145,19 +145,6 @@ func makeArgs(opts []ConfigOpt) []string {
 
 var tempDir = &surulio.SafeTempDirExecer{}
 
-func (p *PostgresCluster) fail(err error) {
-	if p.FailWith != nil && err != nil {
-		p.FailWith(err)
-	}
-}
-
-func (p *PostgresCluster) handleErrors(err *error, panicked interface{}) {
-	// First check to see if we need to handle a panic
-	fault.Recover(err, panicked)
-	// Now handle the error
-	p.fail(*err)
-}
-
 // Init will run initdb to create the cluster in the specified
 // directory. Init will return an error if the directory contains
 // an existing cluster. Use InitIfNeeded() to skip initialization
@@ -174,19 +161,20 @@ func (p *PostgresCluster) handleErrors(err *error, panicked interface{}) {
 // only call Start() on the clone. This allows a single golden copy
 // to be shared among multiple tests with fast start times.
 func (p *PostgresCluster) Init() (err error) {
-	defer func() { p.handleErrors(&err, recover()) }()
+	defer check.Recover(&err)
 
+	check.True(!p.Initialized(), "postgres cluster already initialized")
 	args := make([]ConfigOpt, len(p.InitOpts))
 	copy(args, p.InitOpts)
 	args = append(args, ConfigOpt{"--pgdata", p.DataDir, ""})
 
-	fault.CheckError(tempDir.Exec("pg_init", func(dir string) error {
+	check.Error(tempDir.Exec("pg_init", func(dir string) error {
 		passwordFile := filepath.Join(dir, "postgres_pass")
-		fault.CheckError(ioutil.WriteFile(passwordFile, []byte(p.Password), 0600))
+		check.Error(ioutil.WriteFile(passwordFile, []byte(p.Password), 0600))
 
 		args = append(args, ConfigOpt{"--pwfile", passwordFile, ""})
 		initdb := exec.Command(filepath.Join(p.BinDir, "initdb"), makeArgs(args)...)
-		fault.CheckOutput(initdb.CombinedOutput())
+		check.Output(initdb.CombinedOutput())
 		return nil
 	}))
 	// Now write out the postgresql.conf
@@ -204,10 +192,8 @@ func (p *PostgresCluster) InitIfNeeded() (err error) {
 func (p *PostgresCluster) configFile() string { return filepath.Join(p.DataDir, "postgresql.conf") }
 
 // Port attempts to parse a port from the provided config options
-// and returns the parsed port or 5432 if there is a failure or no
-// port is specified. If there is a failure the FailWith will
-// be called.
-func (p *PostgresCluster) Port() (portVal int) {
+// and returns the parsed port or an error if no port could be parsed..
+func (p *PostgresCluster) Port() (portVal int, err error) {
 	port := "5432"
 	for _, opt := range p.Config {
 		if opt.Key == "port" {
@@ -215,24 +201,21 @@ func (p *PostgresCluster) Port() (portVal int) {
 			break
 		}
 	}
-	var err error
-	if portVal, err = strconv.Atoi(port); err != nil {
-		// The port is invalid, falling back to 5432
-		p.fail(err)
-		return 5432
-	}
-	return portVal
+	return strconv.Atoi(port)
 }
 
 // SocketDir returns the location of the postgres unix socket directory.
 // Note: This will panic if it is unable to find the absolute path to the socket directory.
-func (p *PostgresCluster) SocketDir() string {
-	return fault.CheckReturn(filepath.Abs(p.DataDir)).(string)
+func (p *PostgresCluster) SocketDir() (str string, err error) {
+	return filepath.Abs(p.DataDir)
 }
 
 // SocketFile returns the location of the postgres socket file
-func (p *PostgresCluster) SocketFile() string {
-	return filepath.Join(p.SocketDir(), fmt.Sprintf(".s.PGSQL.%d", p.Port()))
+func (p *PostgresCluster) SocketFile() (socketFile string, err error) {
+	defer check.Recover(&err)
+	return filepath.Join(
+		check.Return(p.SocketDir()).(string),
+		fmt.Sprintf(".s.PGSQL.%d", check.Return(p.Port()).(int))), nil
 }
 
 // Initialized checks if a cluster has been initialized in the data directory.
@@ -245,15 +228,15 @@ func (p *PostgresCluster) Initialized() bool {
 	return false
 }
 
-// WaitTillRunning waits for a duration of timeout for the postgres server to start.
+// WaitTillServing waits for a duration of timeout for the postgres server to start.
 // It must be called after a call to Start() and before a call to Stop() or Wait()
 // It polls for the existence of the socket file every 10ms to detect if the server
 // is running and accessible and will return an error if it cannot detect the
 // server within timeout.
-func (p *PostgresCluster) WaitTillRunning(timeout time.Duration) (err error) {
-	defer func() { p.handleErrors(&err, recover()) }()
-	fault.Check(p.proc != nil, "server has not been started")
-	return surulio.WaitTillExists(p.SocketFile(), 10*time.Millisecond, timeout)
+func (p *PostgresCluster) WaitTillServing(timeout time.Duration) (err error) {
+	defer check.Recover(&err)
+	check.True(p.Running(), "server has not been started")
+	return surulio.WaitTillExists(check.Return(p.SocketFile()).(string), 10*time.Millisecond, timeout)
 }
 
 // Running will return true if the server is running. Please note that this is still
@@ -273,17 +256,18 @@ func (p *PostgresCluster) Running() bool {
 // It does not attempt to read the config file to determine the data directory or the
 // socket directory.
 func (p *PostgresCluster) Start() (err error) {
-	defer func() { p.handleErrors(&err, recover()) }()
-	fault.Check(p.Initialized(), "postgres cluster not initialized")
-	fault.Check(!p.Running(), "postgres cluster already running")
+	defer check.Recover(&err)
+	check.True(p.Initialized(), "postgres cluster not initialized")
+	check.True(!p.Running(), "postgres cluster already running")
 
 	args := make([]ConfigOpt, len(p.RunOpts))
 	copy(args, p.RunOpts)
-	args = append(args, ConfigOpt{"-D", fault.CheckReturn(filepath.Abs(p.DataDir)).(string), ""})
-	args = append(args, ConfigOpt{"-k", p.SocketDir(), ""})
+	socketDir := check.Return(p.SocketDir()).(string)
+	args = append(args, ConfigOpt{"-D", socketDir, ""})
+	args = append(args, ConfigOpt{"-k", socketDir, ""})
 	args = append(args, ConfigOpt{"-c", fmt.Sprintf("config_file=%s", p.configFile()), ""})
 	proc := exec.Command(filepath.Join(p.BinDir, "postgres"), makeArgs(args)...)
-	fault.CheckError(proc.Start())
+	check.Error(proc.Start())
 	p.proc = proc
 	return
 }
@@ -292,11 +276,11 @@ func (p *PostgresCluster) Start() (err error) {
 // This currently only works on systems which have a cp command. This
 // will not work if the destination directory exists.
 func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
-	defer func() { p.handleErrors(&err, recover()) }()
-	fault.Check(!p.Running(), "cannot clone a running cluster")
-	fault.Check(p.Initialized(), "cluster must be initialized before cloning")
-	fault.Check(!fault.CheckReturn(surulio.Exists(dest)).(bool), "cannot clone into an existing directory")
-	fault.CheckOutput(exec.Command("cp", "-r", p.DataDir, dest).CombinedOutput())
+	defer check.Recover(&err)
+	check.True(!p.Running(), "cannot clone a running cluster")
+	check.True(p.Initialized(), "cluster must be initialized before cloning")
+	check.True(!check.Return(surulio.Exists(dest)).(bool), "cannot clone into an existing directory")
+	check.Output(exec.Command("cp", "-r", p.DataDir, dest).CombinedOutput())
 	cloned := *p
 	cloned.DataDir = dest
 	return &cloned, nil
@@ -310,8 +294,8 @@ func (p *PostgresCluster) Clone(dest string) (c *PostgresCluster, err error) {
 // It will return an error if the server exits with any return code other than 0 or as a result of SIGTERM.
 // It is an error to call this before calling Start.
 func (p *PostgresCluster) Wait() (err error) {
-	defer func() { p.handleErrors(&err, recover()) }()
-	fault.Check(p.Running(), "postgres cluster not running")
+	defer check.Recover(&err)
+	check.True(p.Running(), "postgres cluster not running")
 	defer func() { p.proc = nil }()
 	if err = p.proc.Wait(); err != nil && err.Error() == "signal: terminated" {
 		err = nil
@@ -323,7 +307,7 @@ func (p *PostgresCluster) Wait() (err error) {
 // This will request a slow shutdown and the postgres server will wait for all existing
 // connections to close. It is an error to call this if the server is not running.
 func (p *PostgresCluster) Stop() (err error) {
-	defer func() { p.handleErrors(&err, recover()) }()
+	defer check.Recover(&err)
 	defer func() {
 		if p.onStop != nil {
 			p.onStop()
