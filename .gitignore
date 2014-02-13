@@ -24,3 +24,5 @@ _testmain.go
 *.swp
 
 testdata/template
+
+*.test
