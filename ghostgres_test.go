@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var testcheck = fault.Checker{}
+var testcheck = fault.NewChecker().SetFaulter(&fault.DebugFaulter{})
 
 type PostgresSuite struct{}
 
@@ -128,17 +128,17 @@ func (s *PostgresSuite) TestFailures(c *C) {
 		}
 	}
 
-	checkFailure(c, cluster, cluster.Start, "postgres cluster not initialized")
+	checkFailure(c, cluster, cluster.Start, ".*postgres cluster not initialized")
 	checkFailure(c, cluster, cloner(filepath.Join(c.MkDir(), "clone")), ".*must be initialized.*")
 
 	cluster = initdb(c)
 	defer cluster.Stop()
 
-	checkFailure(c, cluster, cluster.Init, "postgres cluster already initialized")
+	checkFailure(c, cluster, cluster.Init, ".*postgres cluster already initialized")
 
-	checkFailure(c, cluster, cloner(c.MkDir()), "cannot clone into an existing directory")
-	checkFailure(c, cluster, cluster.Wait, "postgres cluster not running")
-	checkFailure(c, cluster, func() error { return cluster.WaitTillServing(10) }, "server has not been started")
+	checkFailure(c, cluster, cloner(c.MkDir()), ".*cannot clone into an existing directory")
+	checkFailure(c, cluster, cluster.Wait, ".*postgres cluster not running")
+	checkFailure(c, cluster, func() error { return cluster.WaitTillServing(10) }, ".*server has not been started")
 
 	origOpts := cluster.RunOpts
 	cluster.RunOpts = []ConfigOpt{{Key: "--fake_flag"}}
@@ -154,15 +154,15 @@ func (s *PostgresSuite) TestFailures(c *C) {
 	c.Assert(cluster.Start(), IsNil)
 
 	checkFailure(c, cluster, cluster.Start, ".*already running.*")
-	checkFailure(c, cluster, cloner(filepath.Join(c.MkDir(), "cloned")), "cannot clone a running cluster")
+	checkFailure(c, cluster, cloner(filepath.Join(c.MkDir(), "cloned")), ".*cannot clone a running cluster")
 
 	cluster.proc.Process.Signal(syscall.SIGINT)
-	checkFailure(c, cluster, cluster.Stop, "signal: interrupt")
+	checkFailure(c, cluster, cluster.Stop, ".*signal: interrupt")
 
 	c.Assert(cluster.Start(), IsNil)
 
 	cluster.proc.Process.Signal(syscall.SIGINT)
-	checkFailure(c, cluster, cluster.Wait, "signal: interrupt")
+	checkFailure(c, cluster, cluster.Wait, ".*signal: interrupt")
 }
 
 func Example() {

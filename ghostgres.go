@@ -51,7 +51,7 @@ import (
 	"time"
 )
 
-var check = fault.NewChecker()
+var check fault.FaultCheck = fault.NewChecker().SetFaulter(&fault.DebugFaulter{})
 
 var postgresqlConfTemplate = template.Must(template.New("postgresql.conf").Parse(`# Auto Generated PostgreSQL Configuration
 {{range $opt := $.Config}}

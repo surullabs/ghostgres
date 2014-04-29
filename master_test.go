@@ -22,6 +22,11 @@ func TestCreateDefaults(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
+
+	var gerr error
+	defer checkError(&gerr, t.Error)
+	defer check.Recover(&gerr)
+
 	defaultTpl := newTemplate(DefaultTemplateDir, DefaultTemplate)
 	version := postgresVersion()
 	if defaultTpl.exists() {
@@ -77,7 +82,7 @@ func checkPanic(c *C, matchRe string, fn func()) {
 		if e := recover(); e == nil {
 			c.Fatal("No panic occured")
 		} else if faults, isErr := e.(fault.Fault); isErr {
-			c.Assert(faults.Fault(), ErrorMatches, matchRe)
+			c.Assert(faults.Cause(), ErrorMatches, matchRe)
 		} else {
 			panic(e)
 			c.Fatal(e)
@@ -87,14 +92,18 @@ func checkPanic(c *C, matchRe string, fn func()) {
 }
 
 func (s *PostgresSuite) TestUtilFailures(c *C) {
+	var gerr error
+	defer checkError(&gerr, c.Error)
+	defer check.Recover(&gerr)
+
 	checkPanic(c, ".*no such file or directory.*", func() {
 		oldBinDir := *pgBinDir
 		defer func() { *pgBinDir = oldBinDir }()
 		*pgBinDir = c.MkDir()
 		postgresVersion()
 	})
-	checkPanic(c, "failed to parse postgres version from blah", func() { parseVersion("blah") })
-	checkPanic(c, "GOPATH is not set.*", func() {
+	checkPanic(c, ".*failed to parse postgres version from blah", func() { parseVersion("blah") })
+	checkPanic(c, ".*GOPATH is not set.*", func() {
 		oldPath := gopathFn
 		defer func() { gopathFn = oldPath }()
 		gopathFn = func() string { return "" }
@@ -102,7 +111,17 @@ func (s *PostgresSuite) TestUtilFailures(c *C) {
 	})
 }
 
+func checkError(errp *error, logFn func(...interface{})) {
+	if *errp != nil {
+		logFn(fault.VerboseTrace(*errp))
+	}
+}
+
 func (s *PostgresSuite) TestTemplating(c *C) {
+	var gerr error
+	defer checkError(&gerr, c.Error)
+	defer check.Recover(&gerr)
+
 	c.Assert(
 		filepath.Dir(newTemplate(DefaultTemplateDir, DefaultTemplate).path()),
 		Equals,

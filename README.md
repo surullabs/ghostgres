@@ -3,7 +3,12 @@ Ghostgres
 
 [![GoDoc](https://godoc.org/github.com/surullabs/ghostgres?status.png)](https://godoc.org/github.com/surullabs/ghostgres) [![Build Status](https://drone.io/github.com/surullabs/ghostgres/status.png)](https://drone.io/github.com/surullabs/ghostgres/latest) [![Coverage Status](https://coveralls.io/repos/surullabs/ghostgres/badge.png?branch=master)](https://coveralls.io/r/surullabs/ghostgres?branch=master)
 
-Ghostgres helps you start and control fresh PostgreSQL clusters in < 100ms.
+Ghostgres helps you start and control fresh PostgreSQL clusters very fast.
+On a 2.000 GHz Intel i7-2630QM CPU machine (non-SSD) cloning a cluster took < 100ms.
+However, your mileage may vary.
+
+Please note that this is a work in progress and the API and documentation are in need
+of some cleanup. The API will likely change in the future.
 
 Running a unit test while talking to a database can be tricky and
 sometimes requires a fair amount of setup to ensure the right
