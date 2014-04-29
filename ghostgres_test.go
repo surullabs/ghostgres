@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	. "launchpad.net/gocheck"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -30,9 +31,25 @@ func TestGocheck(t *testing.T) {
 	TestingT(t)
 }
 
+var postgresGoldenFmt = `# Auto Generated PostgreSQL Configuration
+
+port = %d  # Different port for testing local sockets 
+
+listen_addresses = ''  # Don't listen on TCP 
+
+autovacuum = off  # Don't run autovacuum 
+
+fsync = off 
+`
+
 func CheckCluster(cluster *PostgresCluster, c *C) {
 	c.Assert(cluster.DataDir, HasFilesNamed, []string{"PG_VERSION", "pg_hba.conf"})
-	c.Assert(filepath.Join(cluster.DataDir, "postgresql.conf"), FileMatches, "testdata/TestInit_postgresql.conf")
+	port, err := cluster.Port()
+	c.Assert(err, IsNil)
+	expected := fmt.Sprintf(postgresGoldenFmt, port)
+	cfgData, err := ioutil.ReadFile(filepath.Join(cluster.DataDir, "postgresql.conf"))
+	c.Assert(err, IsNil)
+	c.Assert(string(cfgData), Equals, expected)
 
 	c.Log("Starting cluster")
 	c.Assert(cluster.Start(), IsNil)
@@ -58,10 +75,19 @@ func CheckCluster(cluster *PostgresCluster, c *C) {
 	c.Assert(cluster.Stop(), IsNil)
 }
 
+func getUnusedPort(c *C) int {
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		c.Fatal("failed to detect unused port ", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
 func testCluster(c *C) *PostgresCluster {
 	return &PostgresCluster{
 		Config: []ConfigOpt{
-			{"port", "10000", "Different port for testing local sockets"},
+			{"port", fmt.Sprintf("%d", getUnusedPort(c)), "Different port for testing local sockets"},
 			{"listen_addresses", "''", "Don't listen on TCP"},
 			{"autovacuum", "off", "Don't run autovacuum"},
 			{"fsync", "off", ""},

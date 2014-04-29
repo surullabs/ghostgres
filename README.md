@@ -35,8 +35,12 @@ ms vs 2 to 3 seconds to run initdb.
 	go get -t github.com/surullabs/ghostgres
 
 	// Run tests and create a default postgres cluster that will be used
-	// as a template for future clusters.
-	go test github.com/surullabs/ghostgres --ghostgres_pg_bin_dir=<path_to_your_postgres_bin_dir>
+	// as a template for future clusters. This will take a while since
+	// it creates a number of postgres clusters from scratch. However, it also
+	// reports the time taken to clone a single cluster which is what you will see
+	// in practice.
+	go test github.com/surullabs/ghostgres --gocheck.vv --ghostgres_pg_bin_dir=<path_to_your_postgres_bin_dir>
+
 
 In your test code you can now use (with appropriate error checks)
 
